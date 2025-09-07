@@ -28,55 +28,15 @@
 </div>
 
 <script>
-/** ====== TUS CONSTANTES DE SUPABASE ====== */
 const SUPABASE_URL = 'https://pduysvaqzkizgxojyfyh.supabase.co';
 const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8';
 
-/** ====== LÓGICA DE GRABACIÓN ====== */
-const MAX_S = 30;
-let media, chunks=[], rec, t, secs=0;
-
-const codeEl = document.getElementById('code');
-const nameEl = document.getElementById('name');
-const btn = document.getElementById('recBtn');
-const statusEl = document.getElementById('status');
-const timer = document.getElementById('timer');
-
-function fmt(n){return String(n).padStart(2,'0')}
-function setTimer(s){ timer.textContent = `${fmt(Math.floor(s/60))}:${fmt(s%60)}` }
-
-async function start() {
-  const runCode = codeEl.value.trim();
-  if(!runCode){ alert('Introduce el código del runner'); return; }
-  media = await navigator.mediaDevices.getUserMedia({ audio: true });
-  rec = new MediaRecorder(media, { mimeType: 'audio/webm' });
-  chunks=[]; secs=0; setTimer(0);
-  t = setInterval(()=>{ secs++; setTimer(secs); if(secs>=MAX_S) stop(); },1000);
-  rec.ondataavailable = e => chunks.push(e.data);
-  rec.onstop = async () => {
-    clearInterval(t);
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    await uploadAndNotify(runCode, blob, nameEl.value.trim());
-  };
-  rec.start();
-  btn.textContent='⏹️ Parar'; btn.onclick=stop;
-  statusEl.textContent='Grabando…';
-}
-
-function stop(){
-  try{ rec?.stop(); }catch(e){}
-  media?.getTracks().forEach(tr=>tr.stop());
-  btn.textContent='🎙️ Grabar (30s máx)'; btn.onclick=start;
-}
-
-btn.onclick = start;
-
-/** ====== SUBIR A STORAGE + FIRMAR + NOTIFICAR ====== */
 async function uploadAndNotify(runCode, blob, sender){
+  const statusEl = document.getElementById('status');
   try {
     statusEl.textContent='Subiendo…';
 
-    // -------- 1) SUBIR A STORAGE --------
+    // 1) Upload
     const fileName = `${runCode}/${Date.now()}.webm`;
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent('audios')}/${encodeURIComponent(fileName)}`;
 
@@ -90,17 +50,14 @@ async function uploadAndNotify(runCode, blob, sender){
       },
       body: blob
     });
-
     if (!up.ok) {
-      const txt = await up.text();
-      console.error('Upload error', up.status, txt);
+      console.error('Upload error', up.status, await up.text());
       statusEl.textContent = `Error al subir audio (${up.status}).`;
       return;
     }
 
-    // -------- 2) CREAR URL FIRMADA (1h) --------
-    statusEl.textContent = 'Creando URL firmada…';
-
+    // 2) Sign (POST + JSON)
+    statusEl.textContent='Creando URL firmada…';
     const signUrl = `${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent('audios')}/${encodeURIComponent(fileName)}`;
     const sign = await fetch(signUrl, {
       method:'POST',
@@ -109,51 +66,39 @@ async function uploadAndNotify(runCode, blob, sender){
         'apikey': ANON,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ expiresIn: 3600 }) // <-- body JSON (importante)
+      body: JSON.stringify({ expiresIn: 3600 })
     });
-
     if (!sign.ok) {
-      const txt = await sign.text();
-      console.error('Sign error', sign.status, txt);
+      console.error('Sign error', sign.status, await sign.text());
       statusEl.textContent = `Error al firmar URL (${sign.status}).`;
       return;
     }
-
-    const data = await sign.json();
-    const signedURL = data?.signedURL;
+    const { signedURL } = await sign.json();
     if (!signedURL) {
-      console.error('Sign response sin signedURL:', data);
       statusEl.textContent = 'No se obtuvo signedURL';
       return;
     }
     const finalUrl = `${SUPABASE_URL}${signedURL}`;
 
-    // -------- 3) LLAMAR A LA API DE VERCEL --------
-    statusEl.textContent = 'Notificando al runner…';
-
-    const notifyRes = await fetch('/api/notify_new_audio', {
+    // 3) Notify
+    statusEl.textContent='Notificando al runner…';
+    const notify = await fetch('/api/notify_new_audio', {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        runCode,
-        url: finalUrl,
-        duration_s: Math.min(secs, MAX_S),
-        sender
-      })
+      body: JSON.stringify({ runCode, url: finalUrl, duration_s: Math.min(secs, 30), sender })
     });
-
-    const notifyTxt = await notifyRes.text();
-    if (!notifyRes.ok) {
-      console.error('Notify error', notifyRes.status, notifyTxt);
-      statusEl.textContent = `Error al notificar (${notifyRes.status}).`;
+    if (!notify.ok) {
+      console.error('Notify error', notify.status, await notify.text());
+      statusEl.textContent = `Error al notificar (${notify.status}).`;
       return;
     }
 
-    console.log('Notify OK', notifyTxt);
-    statusEl.textContent = '¡Enviado! 🎉';
+    statusEl.textContent='¡Enviado! 🎉';
   } catch (e) {
     console.error(e);
-    statusEl.textContent = 'Error inesperado. Revisa la consola.';
+    statusEl.textContent='Error inesperado. Revisa la consola.';
   }
 }
 </script>
+
+
