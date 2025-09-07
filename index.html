@@ -66,37 +66,47 @@ function stop(){
 
 btn.onclick = start;
 
-// TODO: rellena tus variables:
-const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
-const SUPABASE_ANON_KEY = 'TU_ANON_KEY';
-const BUCKET = 'audios';
-
+// -------------------
+// 🔗 Aquí es donde usamos Vercel
+// -------------------
 async function uploadAndNotify(runCode, blob, sender){
   statusEl.textContent='Subiendo…';
-  // 1) Subir a Storage
+
+  // 1) Subir el archivo a Supabase Storage (bucket audios)
   const fileName = `${runCode}/${Date.now()}.webm`;
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${fileName}`, {
+
+  // Aquí usamos directamente la API de Supabase Storage con la ANON_KEY
+  const res = await fetch(`${'https://pduysvaqzkizgxojyfyh.supabase.co'}/storage/v1/object/audios/${fileName}`, {
     method:'POST',
-    headers:{ 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'audio/webm', 'x-upsert': 'true' },
+    headers:{
+      'Authorization': `Bearer ${'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8'}`,
+      'Content-Type': 'audio/webm',
+      'x-upsert': 'true'
+    },
     body: blob
   });
   if(!res.ok){ statusEl.textContent='Error al subir audio'; return; }
 
-  // 2) URL firmada (1h)
-  const signRes = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${fileName}?expiresIn=3600`, {
+  // 2) Creamos la URL pública firmada de 1h
+  const signRes = await fetch(`${'https://<TU_PROJECT>.supabase.co'}/storage/v1/object/sign/audios/${fileName}?expiresIn=3600`, {
     method:'POST',
-    headers:{ 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+    headers:{ 'Authorization': `Bearer ${'<TU_ANON_KEY>'}` }
   });
   const { signedURL } = await signRes.json();
+  const finalUrl = `${'https://<TU_PROJECT>.supabase.co'}${signedURL}`;
 
-  // 3) Registrar y notificar (Edge Function / RPC)
-  const payload = { runCode, url: `${SUPABASE_URL}${signedURL}`, duration_s: Math.min(secs, MAX_S), sender };
-  const fn = await fetch(`${SUPABASE_URL}/functions/v1/notify_new_audio`, {
+  // 3) Llamamos a la API en Vercel
+  const notifyRes = await fetch('/api/notify_new_audio', {
     method:'POST',
-    headers:{ 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type':'application/json' },
-    body: JSON.stringify(payload)
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({
+      runCode,
+      url: finalUrl,
+      duration_s: Math.min(secs, MAX_S),
+      sender
+    })
   });
 
-  statusEl.textContent = fn.ok ? '¡Enviado! 🎉' : 'Enviado, pero no se pudo notificar.';
+  statusEl.textContent = notifyRes.ok ? '¡Enviado! 🎉' : 'Error al notificar.';
 }
 </script>
