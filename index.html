@@ -80,6 +80,7 @@ async function uploadAndNotify(runCode, blob, sender){
     method:'POST',
     headers:{
       'Authorization': `Bearer ${'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8'}`,
+      "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8",
       'Content-Type': 'audio/webm',
       'x-upsert': 'true'
     },
@@ -90,7 +91,7 @@ async function uploadAndNotify(runCode, blob, sender){
   // 2) Creamos la URL pública firmada de 1h
   const signRes = await fetch(`${'https://<TU_PROJECT>.supabase.co'}/storage/v1/object/sign/audios/${fileName}?expiresIn=3600`, {
     method:'POST',
-    headers:{ 'Authorization': `Bearer ${'<TU_ANON_KEY>'}` }
+    headers:{ 'Authorization': `Bearer ${'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8'}` }
   });
   const { signedURL } = await signRes.json();
   const finalUrl = `${'https://<TU_PROJECT>.supabase.co'}${signedURL}`;
@@ -110,3 +111,4 @@ async function uploadAndNotify(runCode, blob, sender){
   statusEl.textContent = notifyRes.ok ? '¡Enviado! 🎉' : 'Error al notificar.';
 }
 </script>
+
