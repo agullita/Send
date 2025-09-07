@@ -24,10 +24,15 @@
     <button id="recBtn">🎙️ Grabar (30s máx)</button>
     <span id="timer" class="pill">00:00</span>
   </div>
-  <p id="status" class="mt"></p>
+  <p id="status" class="mt" id="status"></p>
 </div>
 
 <script>
+/** ====== TUS CONSTANTES DE SUPABASE ====== */
+const SUPABASE_URL = 'https://pduysvaqzkizgxojyfyh.supabase.co';
+const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8';
+
+/** ====== LÓGICA DE GRABACIÓN ====== */
 const MAX_S = 30;
 let media, chunks=[], rec, t, secs=0;
 
@@ -66,49 +71,89 @@ function stop(){
 
 btn.onclick = start;
 
-// -------------------
-// 🔗 Aquí es donde usamos Vercel
-// -------------------
+/** ====== SUBIR A STORAGE + FIRMAR + NOTIFICAR ====== */
 async function uploadAndNotify(runCode, blob, sender){
-  statusEl.textContent='Subiendo…';
+  try {
+    statusEl.textContent='Subiendo…';
 
-  // 1) Subir el archivo a Supabase Storage (bucket audios)
-  const fileName = `${runCode}/${Date.now()}.webm`;
+    // -------- 1) SUBIR A STORAGE --------
+    const fileName = `${runCode}/${Date.now()}.webm`;
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent('audios')}/${encodeURIComponent(fileName)}`;
 
-  // Aquí usamos directamente la API de Supabase Storage con la ANON_KEY
-  const res = await fetch(`${'https://pduysvaqzkizgxojyfyh.supabase.co'}/storage/v1/object/audios/${fileName}`, {
-    method:'POST',
-    headers:{
-      'Authorization': `Bearer ${'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8'}`,
-      "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8",
-      'Content-Type': 'audio/webm',
-      'x-upsert': 'true'
-    },
-    body: blob
-  });
-  if(!res.ok){ statusEl.textContent='Error al subir audio'; return; }
+    const up = await fetch(uploadUrl, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${ANON}`,
+        'apikey': ANON,
+        'Content-Type': 'audio/webm',
+        'x-upsert': 'true'
+      },
+      body: blob
+    });
 
-  // 2) Creamos la URL pública firmada de 1h
-  const signRes = await fetch(`${'https://<TU_PROJECT>.supabase.co'}/storage/v1/object/sign/audios/${fileName}?expiresIn=3600`, {
-    method:'POST',
-    headers:{ 'Authorization': `Bearer ${'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdXlzdmFxemtpemd4b2p5ZnloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNTIzNjQsImV4cCI6MjA3MjgyODM2NH0.OAcF_jrVxvszxxfz6mHGBqs2hp6hDAwDwWKgIU_XvR8'}` }
-  });
-  const { signedURL } = await signRes.json();
-  const finalUrl = `${'https://<TU_PROJECT>.supabase.co'}${signedURL}`;
+    if (!up.ok) {
+      const txt = await up.text();
+      console.error('Upload error', up.status, txt);
+      statusEl.textContent = `Error al subir audio (${up.status}).`;
+      return;
+    }
 
-  // 3) Llamamos a la API en Vercel
-  const notifyRes = await fetch('/api/notify_new_audio', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({
-      runCode,
-      url: finalUrl,
-      duration_s: Math.min(secs, MAX_S),
-      sender
-    })
-  });
+    // -------- 2) CREAR URL FIRMADA (1h) --------
+    statusEl.textContent = 'Creando URL firmada…';
 
-  statusEl.textContent = notifyRes.ok ? '¡Enviado! 🎉' : 'Error al notificar.';
+    const signUrl = `${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent('audios')}/${encodeURIComponent(fileName)}`;
+    const sign = await fetch(signUrl, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${ANON}`,
+        'apikey': ANON,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ expiresIn: 3600 }) // <-- body JSON (importante)
+    });
+
+    if (!sign.ok) {
+      const txt = await sign.text();
+      console.error('Sign error', sign.status, txt);
+      statusEl.textContent = `Error al firmar URL (${sign.status}).`;
+      return;
+    }
+
+    const data = await sign.json();
+    const signedURL = data?.signedURL;
+    if (!signedURL) {
+      console.error('Sign response sin signedURL:', data);
+      statusEl.textContent = 'No se obtuvo signedURL';
+      return;
+    }
+    const finalUrl = `${SUPABASE_URL}${signedURL}`;
+
+    // -------- 3) LLAMAR A LA API DE VERCEL --------
+    statusEl.textContent = 'Notificando al runner…';
+
+    const notifyRes = await fetch('/api/notify_new_audio', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        runCode,
+        url: finalUrl,
+        duration_s: Math.min(secs, MAX_S),
+        sender
+      })
+    });
+
+    const notifyTxt = await notifyRes.text();
+    if (!notifyRes.ok) {
+      console.error('Notify error', notifyRes.status, notifyTxt);
+      statusEl.textContent = `Error al notificar (${notifyRes.status}).`;
+      return;
+    }
+
+    console.log('Notify OK', notifyTxt);
+    statusEl.textContent = '¡Enviado! 🎉';
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = 'Error inesperado. Revisa la consola.';
+  }
 }
 </script>
-
